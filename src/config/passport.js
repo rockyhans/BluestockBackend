@@ -181,14 +181,14 @@ OAuth.get("/account/google/signup", (req, res) => {
 OAuth.get(
   "/google/callback",
   passport.authenticate("google", {
-    failureRedirect: "http://localhost:4200", // Redirect to frontend in case of failure
+    failureRedirect: "https://visit-blue-stock.vercel.app", // Redirect to frontend in case of failure
   }),
   (req, res) => {
     // Handle successful authentication and redirect to frontend
     const redirectUrl =
       req.session.returnTo ||
       req.user.redirectUrl ||
-      "http://localhost:4200/Ragister-IPO-Details-And-Dasboard"; // Redirect to frontend dashboard
+      "https://visit-blue-stock.vercel.app/Ragister-IPO-Details-And-Dasboard"; // Redirect to frontend dashboard
 
     console.log(
       `[AUTH REDIRECT] User ${req.user.email} redirected to ${redirectUrl}`
@@ -244,7 +244,7 @@ OAuth.use((err, req, res, next) => {
   };
 
   const errorType = errorTypes[err.message] || "auth_failed";
-  const frontendUrl = "http://localhost:4200";
+  const frontendUrl = "https://visit-blue-stock.vercel.app";
 
   res.redirect(`${frontendUrl}?type=${errorType}`);
 });

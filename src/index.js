@@ -79,7 +79,7 @@ app.use(['/home', '/lib', '/server', '/wp-app.log'], (req, res) => res.status(40
 // 6. CORS configuration
 const allowedOrigins = [process.env.FRONTEND_URL];
 app.use(cors({
-  origin: 'http://localhost:4200',
+  origin: 'https://visit-blue-stock.vercel.app',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
