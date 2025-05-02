@@ -1,0 +1,172 @@
+import express from 'express';
+import dotenv from 'dotenv/config';
+import cors from 'cors';
+import rateLimit from 'express-rate-limit';
+import helmet from 'helmet';
+import hpp from 'hpp';
+import compression from 'compression';
+import cookieParser from 'cookie-parser';
+import { createWriteStream } from 'fs';
+import { join } from 'path';
+import morgan from 'morgan';
+
+import { sessionMiddleware } from './config/session.config.js';
+import connectDB from './config/database.config.js';
+import traditionalAuth from './routes/auth.route.js';
+import OAuth from './config/passport.js';
+import { sharedLogout } from './controllers/logout.controller.js';
+
+const app = express();
+
+// ======================================
+// 1. GLOBAL MIDDLEWARE STACK
+// ======================================
+
+// Trust Ngrok's proxy (ngrok acting as a reverse proxy)
+app.set('trust proxy', 1); // Or use `1` if behind only Ngrok
+
+// Disable unwanted headers
+app.disable('x-powered-by');
+app.disable('etag');
+
+// 1. Request logging
+if (process.env.NODE_ENV === 'development') {
+  app.use(morgan('dev'));
+} else {
+  const accessLogStream = createWriteStream(
+    join(process.cwd(), 'access.log'),
+    { flags: 'a' }
+  );
+  app.use(morgan('combined', { stream: accessLogStream }));
+}
+
+// 2. Body parsers
+app.use(express.json({ limit: '10kb' }));
+app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+
+// 3. Cookie parser
+app.use(cookieParser());
+
+// session middleware
+app.use(sessionMiddleware);
+
+// 4. Security middlewares
+app.use(helmet());
+app.use(hpp());
+
+// custom mongoDB sanitizer
+app.use((req, _, next) => {
+  const sanitize = (obj) => {
+    Object.keys(obj).forEach(key => {
+      if (key.includes('$') || key.includes('.')) {
+        delete obj[key];
+      } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+        sanitize(obj[key]);
+      }
+    });
+  };
+
+  if (req.body) sanitize(req.body);
+  if (req.query) sanitize(req.query);
+  if (req.params) sanitize(req.params);
+
+  next();
+});
+
+// 5. Block suspicious paths
+app.use(['/home', '/lib', '/server', '/wp-app.log'], (req, res) => res.status(404).end());
+
+// 6. CORS configuration
+const allowedOrigins = [process.env.FRONTEND_URL];
+app.use(cors({
+  origin: 'http://localhost:4200',
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Authorization']
+}));
+
+// 7. Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: process.env.NODE_ENV === 'production' ? 100 : 1000,
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { trustProxy: true }
+});
+app.use(limiter);
+
+// 8. Compression (gzip)
+app.use(compression());
+
+// ======================================
+// 2. ROUTES
+// ======================================
+
+// Test route
+app.get('/test', (req, res) => {
+  res.send("Hello from backend!");
+});
+
+// OAuth routes
+app.use('/OAuth', OAuth);
+// traditional routes
+app.use('/auth', traditionalAuth);
+
+// common logout route for both traditional and passport
+app.post('/auth/logout', sharedLogout);
+
+// ======================================
+// 3. ERROR HANDLING
+// ======================================
+app.use('/', (req, res) => {
+  res.status(404).json({
+    status: 'fail',
+    message: `Can't find ${req.originalUrl} on this server!`
+  });
+});
+
+app.use((err, req, res, next) => {
+  err.statusCode = err.statusCode || 500;
+  err.status = err.status || 'error';
+
+  res.status(err.statusCode).json({
+    status: err.status,
+    message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong!',
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+  });
+});
+
+// ======================================
+// 4. SERVER INITIALIZATION
+// ======================================
+const PORT = process.env.PORT || 4001;
+
+const startServer = async () => {
+  try {
+    await connectDB();
+    const server = app.listen(PORT, () => {
+      console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+    });
+
+    process.on('unhandledRejection', (err) => {
+      console.error('UNHANDLED REJECTION! 💥 Shutting down...');
+      console.error(err.name, err.message);
+      server.close(() => process.exit(1));
+    });
+
+    process.on('uncaughtException', (err) => {
+      console.error('UNCAUGHT EXCEPTION! 💥 Shutting down...');
+      console.error(err.name, err.message);
+      server.close(() => process.exit(1));
+    });
+  } catch (err) {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  }
+};
+
+startServer();
+
+export default app;
